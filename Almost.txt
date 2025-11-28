@@ -4,6 +4,7 @@ import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
 from dash import callback_context as ctx
+#import Functions
 
 # ===== LOAD DATA AND PRE-CALCULATIONS (Combined) =====
 # Assuming "train_cleaned.csv" exists in the current directory
@@ -311,29 +312,60 @@ app.layout = html.Div(
                     # CONTAINERS FOR FIELD ENTRIES
                     html.Div( children=[
                             dcc.Input(
-                                id="AgeS",
-                                type="text",
-                                placeholder="ENTER PERSONS AGE...",
+                                id="PClass",
+                                type="number",
+                                placeholder="ENTER PERSONS CLASS BETWEEN 1 TO 3...",
                                 className="search-input"
                             ),
                             dcc.Input(
-                                id="GenderS",
-                                type="text",
-                                placeholder="ENTER PERSONS SEX...",
+                                id="Sex",
+                                type="number",
+                                placeholder="ENTER PERSONS SEX aAS 1 OR 0...",
                                 className="search-input"
                             ),
                             dcc.Input(
-                                id="Cabin",
+                                id="Number of Siblings or Spouses",
+                                type="number", # Changed from 'number' to 'text' for alphanumeric cabin IDs
+                                placeholder="ENTER PERSONS SIBLING AND SPOUSE COUNT...", # Corrected placeholder
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="Number of Parents/Children Aboard",
+                                type="number",
+                                placeholder="ENTER PERSONS NUMBER OF PARENTS AND CHILDREN ABOARD...",
+                                className="search-input"
+                            ),
+                              dcc.Input(
+                                id="Embarked at Port",
+                                type="text",
+                                placeholder="ENTER PORT PERSONS EMBARKED FROM AS S OR Q...",
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="HasCabin",
+                                type="text",
+                                placeholder="ENTER IF PERSON HAD A CABIN AS A 1 OR 0...",
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="FamilySize",
                                 type="text", # Changed from 'number' to 'text' for alphanumeric cabin IDs
                                 placeholder="ENTER PERSONS CABIN...", # Corrected placeholder
                                 className="search-input"
                             ),
                             dcc.Input(
-                                id="Class",
+                                id="IsAlone",
                                 type="number",
-                                placeholder="ENTER PERSONS CLASS...",
+                                placeholder="ENTER IF PERSON IS ALONE 1 OR 0...",
                                 className="search-input"
                             ),
+                             dcc.Input(
+                                id="Age",
+                                type="number",
+                                placeholder="ENTER PERSONS AGE...",
+                                className="search-input"
+                            ),
+
 
                             # Renamed button ID to avoid conflict with navigation 'Back'
                             html.Button('PREDICT SURVIVAL', id="PredictSurvivalBtn", n_clicks=0, className="btn btn-primary") 
