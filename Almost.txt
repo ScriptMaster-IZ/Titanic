@@ -1,0 +1,547 @@
+import dash
+from dash import html, dcc, Input, Output, State
+import dash_bootstrap_components as dbc
+import plotly.express as px
+import pandas as pd
+from dash import callback_context as ctx
+
+# ===== LOAD DATA AND PRE-CALCULATIONS (Combined) =====
+# Assuming "train_cleaned.csv" exists in the current directory
+try:
+    df = pd.read_csv("train_cleaned.csv")
+except FileNotFoundError:
+    print("Error: 'train_cleaned.csv' not found. Creating dummy data.")
+    # Create a dummy DataFrame if the real one isn't found, to allow the app structure to load.
+    data = {'Age': [30, 2, 71, 25, 45, 10, 80, 0.42, 50, 20], 
+            'Fare': [7.25, 10.5, 51.86, 8.05, 7.89, 7.89, 30.0, 8.43, 26.0, 15.0], 
+            'Pclass': [3, 2, 1, 3, 3, 3, 1, 3, 2, 2], 
+            'Sex': ['male', 'female', 'male', 'male', 'female', 'male', 'male', 'male', 'female', 'male'], 
+            'Embarked': ['S', 'S', 'S', 'S', 'Q', 'S', 'C', 'S', 'S', 'Q'], 
+            'Survived': [0, 1, 0, 0, 1, 0, 0, 1, 1, 0],
+            'Name': ['Braund, Mr. Owen Harris', 'Cumings, Mrs. John Bradley (Florence Briggs Thayer)', 
+                     'Goldsmith, Mr. Frank John', 'Olsen, Mr. Knut-Oscar', 'Heikkinen, Miss. Laina', 
+                     'Salo, Mr. Johan', 'Oldest, Mr. Senior', 'Youngest, Master. Baby', 'Survived, Mrs. Test', 'Died, Mr. Test'],
+            }
+    df = pd.DataFrame(data)
+
+# Pre-calc facts
+oldest_p = df.loc[df["Age"].idxmax()] if not df.empty and df["Age"].max() is not None else {'Name': 'N/A', 'Age': 0}
+youngest_p = df.loc[df["Age"].idxmin()] if not df.empty and df["Age"].min() is not None else {'Name': 'N/A', 'Age': 0}
+
+oldest = df["Age"].max() if not df.empty else 'N/A'
+youngest = df["Age"].min() if not df.empty else 'N/A'
+highest_fare_val = df["Fare"].max() if not df.empty else 0.0
+
+most_class = df["Pclass"].mode()[0] if not df.empty and not df["Pclass"].mode().empty else 'N/A'
+
+df["FirstName"] = df["Name"].apply(lambda x: str(x).split()[0].split(',')[0]) # Use last name before comma
+common_name = df["FirstName"].value_counts().idxmax() if not df.empty else 'N/A'
+
+male_surv = df[df["Sex"] == "male"]["Survived"].mean() * 100 if "male" in df["Sex"].unique() else 0
+female_surv = df[df["Sex"] == "female"]["Survived"].mean() * 100 if "female" in df["Sex"].unique() else 0
+
+# Facts list for Page 3
+FACTS = [
+    {
+        "title": "Oldest Passenger",
+        "text": f"{oldest_p['Name'].split(',')[0]} — {int(oldest_p['Age'])} years old"
+    },
+    {
+        "title": "Youngest Passenger",
+        "text": f"{youngest_p['Name'].split(',')[0]} — {youngest_p['Age']} years old"
+    },
+    {
+        "title": "Highest Fare Paid",
+        "text": f"Highest fare paid was ${highest_fare_val:.2f}"
+    },
+    {
+        "title": "Most Common Ticket Class",
+        "text": f"Class {most_class} was most common"
+    },
+    {
+        "title": "Most Common Last Name",
+        "text": f"'{common_name}' was the most frequent last name"
+    },
+    {
+        "title": "Survival Rate by Gender",
+        "text": f"Male: {male_surv:.1f}% — Female: {female_surv:.1f}%"
+    }
+]
+
+
+# Pre-calc age groups for chart filter
+if not df.empty and "Age" in df.columns:
+    df["AgeGroup"] = pd.cut(
+        df["Age"],
+        bins=[0, 18, 40, 60, 100],
+        labels=["Child", "Adult", "Middle Age", "Senior"],
+        right=True,
+        duplicates='drop'
+    )
+else:
+    df["AgeGroup"] = pd.Series(dtype='object')
+
+
+# ===== INITIAL CHARTS FUNCTIONS =====
+def create_age_chart(filtered):
+    if filtered.empty or "Age" not in filtered.columns:
+        return {}
+
+    temp = filtered.copy()
+    # Recreate AgeGroup for robust filtering
+    temp["AgeGroup"] = pd.cut(
+        temp["Age"],
+        bins=[0, 18, 40, 60, 100],
+        labels=["Child", "Adult", "Middle", "Senior"],
+        right=True,
+        duplicates='drop'
+    ).astype(str)
+    
+    survival_age = temp.groupby("AgeGroup", dropna=False)["Survived"].mean().reset_index()
+
+    fig = px.bar(
+        survival_age,
+        x="AgeGroup",
+        y="Survived",
+        title="Survival Rate by Age Group",
+        color="Survived",
+        color_continuous_scale=["#0b3d91", "#1e90ff"],
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#050833",
+        plot_bgcolor="#050833",
+        font_color="white",
+        yaxis_title="Mean Survival Rate",
+        margin=dict(t=50)
+    )
+    return fig
+
+
+def create_class_chart(filtered):
+    if filtered.empty or "Pclass" not in filtered.columns:
+        return {}
+    
+    fig = px.pie(
+        filtered,
+        names="Pclass",
+        title="Passenger Class Distribution",
+        hole=0.55,
+        color_discrete_sequence=["#0b3d91", "#1e90ff", "#87cefa"]
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#050833",
+        plot_bgcolor="#050833",
+        font_color="white",
+        margin=dict(t=50)
+    )
+    return fig
+
+
+def create_fare_chart(filtered):
+    if filtered.empty or "Fare" not in filtered.columns:
+        return {}
+        
+    fig = px.histogram(
+        filtered,
+        x="Fare",
+        nbins=40,
+        title="Fare Distribution",
+        color_discrete_sequence=["#1e90ff"]
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#050833",
+        plot_bgcolor="#050833",
+        font_color="white",
+        margin=dict(t=50)
+    )
+    return fig
+
+
+# ===== APP SETUP =====
+# Use a custom index string to set the global style for the whole app
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app.title = "Titanic Multi-Page Dashboard"
+
+
+# ===== CUSTOM CSS (DARK BLUE THEME) - Same as original =====
+# This style block is necessary for the visual theme.
+app.index_string = """
+<!DOCTYPE html>
+<html>
+<head>
+    {%metas%}
+    <title>Titanic Dashboard</title>
+    {%favicon%}
+    {%css%}
+    <style>
+        body {
+            background-color: #050833;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0; /* Remove default body margin */
+        }
+        .stat-card {
+            background-color: #0A0E4A;
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0px 0px 12px black;
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 34px;
+            font-weight: bold;
+            color: #1e90ff;
+        }
+        .chart-card {
+            background-color: #0A0E4A;
+            padding: 10px;
+            border-radius: 16px;
+            box-shadow: 0px 0px 14px black;
+        }
+        /* Custom style for the Fun Facts cards on Page 3 */
+        .fact-card {
+            background-color: #F8F9FA; /* Light background for contrast */
+            padding: 20px;
+            border-radius: 18px;
+            margin-bottom: 15px;
+            box-shadow: 0px 3px 10px rgba(0,0,0,0.25);
+        }
+        .fact-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: #050833; /* Dark text */
+        }
+        .fact-text {
+            font-size: 17px;
+            margin-top: 5px;
+            color: #495057; /* Slightly lighter dark text */
+        }
+        .search-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #ced4da; /* Add a border */
+            margin-bottom: 20px;
+            color: black;
+        }
+        .btn-primary {
+            background-color: #1e90ff !important;
+            border-color: #1e90ff !important;
+        }
+    </style>
+</head>
+<body>
+    {%app_entry%}
+    <footer>
+        {%config%}
+        {%scripts%}
+        {%renderer%}
+    </footer>
+</body>
+</html>
+"""
+
+
+# ===== LAYOUT (Combined Pages) - CORRECTED STRUCTURE =====
+app.layout = html.Div(
+    dbc.Container( # Wrap content in a container for better layout
+        fluid=True,
+        children=[
+            # Hidden Stores for State Management
+            dcc.Store(id='CurrentPage', data="Page1"), # Start on Page1
+            dcc.Store(id='TotalPages', data=3), # Now 3 pages
+
+            # === PAGE 1: Dashboard Summary ===
+            html.Div(
+                id='Page1',
+                style={'display':'block'},
+                children=[
+                    html.H1("🚢 Titanic Data Dashboard Summary", className="text-center text-white mt-4 mb-3"),
+
+                    # Filters Row
+                    dbc.Row(
+                        [
+                            dbc.Col(dcc.Dropdown(id="filter-class", options=[{"label": f"Class {i}", "value": i} for i in sorted(df["Pclass"].unique()) if pd.notna(i)] + [{"label": "All Classes", "value": "all"}], value="all", clearable=False, style={"color": "black"}), md=3),
+                            dbc.Col(dcc.Dropdown(id="filter-sex", options=[{"label": s.capitalize(), "value": s} for s in df["Sex"].unique() if pd.notna(s)] + [{"label": "All", "value": "all"}], value="all", clearable=False, style={"color": "black"}), md=3),
+                            dbc.Col(dcc.Dropdown(id="filter-embarked", options=[{"label": str(e), "value": e} for e in df["Embarked"].unique() if pd.notna(e)] + [{"label": "All Ports", "value": "all"}], value="all", clearable=False, style={"color": "black"}), md=3),
+                            dbc.Col(dcc.Dropdown(id="filter-age", options=[{"label": "All Ages", "value": "all"}, {"label": "0–18 (Children)", "value": "child"}, {"label": "19–40 (Adults)", "value": "adult"}, {"label": "41–60 (Middle Age)", "value": "middle"}, {"label": "60+ (Seniors)", "value": "senior"},], value="all", clearable=False, style={"color": "black"}), md=3),
+                        ],
+                        className="mb-4"
+                    ),
+
+                    # Fun Facts/Stats Row
+                    dbc.Row(
+                        [
+                            dbc.Col(dbc.Card([html.H4("Oldest Age", className="text-white"), html.H2(f"{int(oldest) if pd.notna(oldest) else 'N/A'} yrs", className="stat-number")], className="stat-card"), md=4),
+                            dbc.Col(dbc.Card([html.H4("Youngest Age", className="text-white"), html.H2(f"{youngest} yrs", className="stat-number")], className="stat-card"), md=4),
+                            dbc.Col(dbc.Card([html.H4("Highest Fare", className="text-white"), html.H2(f"${highest_fare_val:.2f}", className="stat-number")], className="stat-card"), md=4),
+                        ],
+                        className="mb-4",
+                    ),
+
+                    # Charts Row 1
+                    dbc.Row(
+                        [
+                            dbc.Col(dbc.Card(dcc.Graph(id="age-chart", figure=create_age_chart(df)), className="chart-card"), md=6),
+                            dbc.Col(dbc.Card(dcc.Graph(id="class-chart", figure=create_class_chart(df)), className="chart-card"), md=6),
+                        ],
+                        className="mb-4",
+                    ),
+                    
+                    # Charts Row 2
+                    dbc.Row(
+                        [
+                            dbc.Col(dbc.Card(dcc.Graph(id="fare-chart", figure=create_fare_chart(df)), className="chart-card"), md=12),
+                        ],
+                        className="mb-4",
+                    ),
+                ]
+            ), # End Page 1
+
+            # === PAGE 2: SURVIVAL PREDICTOR (Fixed initial style and duplicate ID) ===
+            html.Div(
+                id='Page2', 
+                style={'display':'none'}, # Starts hidden
+                children=[
+                    html.H1("📜 SURVIVAL PREDICTOR", className="text-center text-white mt-4 mb-3"),
+
+                    # CONTAINERS FOR FIELD ENTRIES
+                    html.Div( children=[
+                            dcc.Input(
+                                id="AgeS",
+                                type="text",
+                                placeholder="ENTER PERSONS AGE...",
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="GenderS",
+                                type="text",
+                                placeholder="ENTER PERSONS SEX...",
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="Cabin",
+                                type="text", # Changed from 'number' to 'text' for alphanumeric cabin IDs
+                                placeholder="ENTER PERSONS CABIN...", # Corrected placeholder
+                                className="search-input"
+                            ),
+                            dcc.Input(
+                                id="Class",
+                                type="number",
+                                placeholder="ENTER PERSONS CLASS...",
+                                className="search-input"
+                            ),
+
+                            # Renamed button ID to avoid conflict with navigation 'Back'
+                            html.Button('PREDICT SURVIVAL', id="PredictSurvivalBtn", n_clicks=0, className="btn btn-primary") 
+                        ]
+                    ),#//entries
+
+                    html.Div(
+                        style={'color':'blue'},
+                        children=[dcc.Markdown("THE ANSWER IS")]
+                    ),
+        
+                    html.Div(
+                        style={
+                            'background-image':'url("/assets/Back.jpg")', 
+                            'background-repeat': 'no-repeat',
+                            'background-position': 'center',
+                            'background-size': 'cover',
+                            'min-height': '60vh',
+                            'width':'100%',
+                            'margin-bottom': '20px'
+                        }, 
+                        children=[
+                            html.Div(
+                                id="prediction-output", # Added an ID for potential output
+                                style={
+                                    'padding': '50px', 
+                                    'color':'white',
+                                    'background-color': 'rgba(0, 0, 0, 0.6)', 
+                                    'font-weight':'bold', 
+                                    'font-size':'20px',
+                                    'min-height': '60vh',
+                                },
+                                children=[
+                                    dcc.Markdown("Prediction will appear here.")
+                                ]
+                            )
+                        ]
+                    ),#//
+                ]
+            ), # End Page 2
+            
+            # === PAGE 3: Titanic Fun Facts ===
+            html.Div(
+                id='Page3', 
+                style={'display':'none'}, # Starts hidden
+                children=[
+                    html.H1("🔍 Titanic Fun Facts", className="text-center text-white mt-4 mb-3"),
+                    
+                    dcc.Input(
+                        id="search-input",
+                        type="text",
+                        placeholder="Search a fact by title or text...",
+                        className="search-input"
+                    ),
+
+                    html.Div(id="facts-container", className="mt-4")
+                ]
+            ), # End Page 3
+            
+            # Navigation Buttons (Placed inside the main Container's children list)
+            dbc.Row(
+                [
+                    dbc.Col(
+                        html.Button('BACK', id="Back", n_clicks=0, className="btn btn-primary"),
+                        width={"size": 1, "offset": 4},
+                    ),
+                    dbc.Col(
+                        html.Button('NEXT', id="Next", n_clicks=0, className="btn btn-primary"),
+                        width={"size": 1, "offset": 2},
+                    ),
+                ],
+                className="my-4"
+            )
+        ] # END of children for dbc.Container
+    ) # END of dbc.Container call
+) # END of html.Div call (app.layout)
+
+
+# ===== PAGE NAVIGATION CALLBACK (Updates CurrentPage state) =====
+@app.callback(
+    Output(component_id="CurrentPage", component_property='data'),
+    [Input(component_id='Next', component_property='n_clicks'),
+     Input(component_id='Back', component_property='n_clicks')],
+    [State('CurrentPage','data'),
+     State('TotalPages', 'data')],
+    prevent_initial_call=True
+)
+def update_current_page(n_clicks_next, n_clicks_back, current_page, total_pages):
+    """Updates the dcc.Store 'CurrentPage' based on button clicks."""
+    
+    current_page_num = int(current_page.replace('Page', ''))
+    
+    triggered_id = ctx.triggered_id
+    
+    if triggered_id == 'Next' and n_clicks_next > 0:
+        new_page_num = min(current_page_num + 1, total_pages)
+        return f"Page{new_page_num}"
+
+    elif triggered_id == 'Back' and n_clicks_back > 0:
+        new_page_num = max(current_page_num - 1, 1) # Page 1 is the minimum
+        return f"Page{new_page_num}"
+    
+    return current_page # Default: no change
+
+
+# ===== PAGE VISIBILITY CALLBACK (Toggles Page Display) =====
+@app.callback(
+    [Output('Page1', 'style'),
+     Output('Page2', 'style'),
+     Output('Page3', 'style')], # Added Page 3
+    [Input('CurrentPage', 'data')]
+)
+def toggle_page_visibility(current_page):
+    """Sets the display style for each page based on the CurrentPage state."""
+    
+    style_show = {'display': 'block'}
+    style_hide = {'display': 'none'}
+    
+    # Initialize all pages to hidden
+    page_styles = [style_hide] * 3
+    
+    # Set the current page to visible
+    if current_page == 'Page1':
+        page_styles[0] = style_show
+    elif current_page == 'Page2':
+        page_styles[1] = style_show
+    elif current_page == 'Page3':
+        page_styles[2] = style_show
+        
+    return tuple(page_styles)
+
+
+# ===== CALLBACK FOR DASHBOARD FILTERING (Page 1) =====
+@app.callback(
+    [
+        Output("age-chart", "figure"),
+        Output("class-chart", "figure"),
+        Output("fare-chart", "figure"),
+    ],
+    [
+        Input("filter-class", "value"),
+        Input("filter-sex", "value"),
+        Input("filter-embarked", "value"),
+        Input("filter-age", "value"),
+    ],
+)
+def update_charts(pclass, sex, embarked, age_filter):
+
+    filtered = df.copy()
+
+    # --- Apply filters ---
+    if pclass != "all":
+        filtered = filtered[filtered["Pclass"] == pclass]
+
+    if sex != "all":
+        filtered = filtered[filtered["Sex"] == sex]
+
+    if embarked != "all":
+        filtered = filtered[filtered["Embarked"] == embarked]
+
+    if age_filter != "all":
+        if age_filter == "child":
+            filtered = filtered[filtered["Age"] <= 18]
+        elif age_filter == "adult":
+            filtered = filtered[(filtered["Age"] > 18) & (filtered["Age"] <= 40)]
+        elif age_filter == "middle":
+            filtered = filtered[(filtered["Age"] > 40) & (filtered["Age"] <= 60)]
+        elif age_filter == "senior":
+            filtered = filtered[filtered["Age"] > 60]
+
+    # REBUILD CHARTS USING FILTERED DATA
+    return (
+        create_age_chart(filtered),
+        create_class_chart(filtered),
+        create_fare_chart(filtered),
+    )
+
+
+# ===== CALLBACK FOR FUN FACTS FILTERING (Page 3) =====
+@app.callback(
+    Output("facts-container", "children"),
+    Input("search-input", "value")
+)
+def update_facts(search):
+    """Filters the fun facts based on the search input."""
+    cards = []
+    
+    for f in FACTS:
+        # Check if search is empty OR if search text is in the title or text of the fact (case-insensitive)
+        if not search or search.lower() in f["title"].lower() or search.lower() in f["text"].lower():
+            cards.append(
+                html.Div([
+                    html.Div(f["title"], className="fact-title"),
+                    html.Div(f["text"], className="fact-text")
+                ], className="fact-card") # Use the custom CSS class
+            )
+
+    # Handle case where no facts are found
+    if not cards:
+        cards.append(
+            html.Div(
+                dbc.Alert("No facts found matching your search criteria.", color="warning", className="mt-3")
+            )
+        )
+        
+    return cards
+
+
+# ===== RUN APP =====
+if __name__ == "__main__":
+    app.run(debug=True)
