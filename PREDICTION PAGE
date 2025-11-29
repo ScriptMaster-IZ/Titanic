@@ -1,0 +1,134 @@
+import dash
+from dash import html, dcc, Input, Output, State
+import dash_bootstrap_components as dbc
+import plotly.express as px
+import pandas as pd
+from dash import callback_context as ctx
+
+#Specifically only shows page 4
+# === PAGE 2: SURVIVAL PREDICTOR (Efficient Storage) ===
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+
+# Define the IDs of the input components for easy reference
+INPUT_IDS = [
+    'PClass_', 'Sex_', 'Age_', 'SibSp_', 'Parch_', 
+    'Embarked_', 'HasCabin_', 'FamilySize_', 'IsAlone_', 'AgeGroup_'
+]
+
+app.layout = html.Div(
+    # Outer div
+    html.Div(
+        id='Page2', 
+        style={'display':'block'},
+        children=[ 
+            #  CONSOLIDATED dcc.Store component 
+            dcc.Store(id='ClassHolder', data={}), # Initialize as an empty dictionary
+
+            html.H1("📜 SURVIVAL PREDICTOR", className="text-center text-white mt-4 mb-3 bg-dark p-2"),
+
+            # CONTAINERS FOR FIELD ENTRIES
+            html.Div(
+                className='p-4 border',
+                children=[
+                    # Reusing the original dcc.Input definitions
+                    dcc.Input(id="PClass_", type="number", placeholder="ENTER PERSONS CLASS BETWEEN 1 TO 3...", className="search-input form-control mb-2"),
+                    dcc.Input(id="Sex_", type="number", placeholder="ENTER PERSONS SEX AS 1 OR 0...", className="search-input form-control mb-2"),
+                    dcc.Input(id="Age_", type="number", placeholder="ENTER PERSONS AGE...", className="search-input form-control mb-2"),
+                    dcc.Input(id="SibSp_", type="number", placeholder="ENTER PERSONS SIBLING AND SPOUSE COUNT...", className="search-input form-control mb-2"),
+                    dcc.Input(id="Parch_", type="number", placeholder="ENTER PERSONS NUMBER OF PARENTS AND CHILDREN ABOARD...", className="search-input form-control mb-2"),
+                    dcc.Input(id="Embarked_", type="text", placeholder="ENTER PORT PERSONS EMBARKED FROM AS S, Q, or C...", className="search-input form-control mb-2"),
+                    dcc.Input(id="HasCabin_", type="number", placeholder="ENTER IF PERSON HAD A CABIN AS A 1 OR 0...", className="search-input form-control mb-2"),
+                    dcc.Input(id="FamilySize_", type="number", placeholder="ENTER TOTAL FAMILY SIZE...", className="search-input form-control mb-2"),
+                    dcc.Input(id="IsAlone_", type="number", placeholder="ENTER IF PERSON IS ALONE 1 OR 0...", className="search-input form-control mb-2"),
+                    dcc.Input(id="AgeGroup_", type="number", placeholder="ENTER PERSONS AGE GROUP (e.g., 0-7)...", className="search-input form-control mb-2"),
+
+                    html.Button(
+                        'PREDICT SURVIVAL', 
+                        id="PredictSurvivalBtn", 
+                        n_clicks=0, 
+                        className="btn btn-primary mt-3"
+                    ) 
+                ]
+            ),#//entries
+            
+            # Placeholder to display the stored values for testing
+            html.Div(id='storage-output', className='mt-4 p-3 bg-light'),
+            
+            # Placeholder for the prediction result (and DataFrame display)
+            html.Div(id='prediction-output', className='mt-4 p-3 border border-danger')
+        ]
+    )
+)
+
+# --- CALLBACK 1: EFFICIENTLY STORE ALL INPUTS IN ONE dcc.Store ---
+input_elements = [Input(id, 'value') for id in INPUT_IDS]
+
+@app.callback(
+    Output(component_id="ClassHolder", component_property='data'),
+    Output(component_id='storage-output', component_property='children'),
+    input_elements 
+)
+def SurvivalInputs_Efficient (*input_values):
+    """
+    Updates the single 'ClassHolder' dcc.Store component with a dictionary 
+    containing all current values from the input fields.
+    """
+    # Create a dictionary using the predefined INPUT_IDS and the received *input_values
+    stored_data = {
+        key.rstrip('_'): value 
+        for key, value in zip(INPUT_IDS, input_values)
+    }
+
+    # For the storage-output Div (for testing)
+    output_message = [
+        html.H4("Consolidated Stored Data:"),
+        html.Ul([
+            html.Li(f"**{key}**: {value}") 
+            for key, value in stored_data.items()
+        ])
+    ]
+    
+    return stored_data, output_message
+
+# --- CALLBACK 2: RETRIEVE STORED DATA AND CONVERT TO DATAFRAME ON BUTTON CLICK ---
+@app.callback(
+    Output('prediction-output', 'children'),
+    Input('PredictSurvivalBtn', 'n_clicks'),
+    State('ClassHolder', 'data') # <-- Access the whole dictionary from the dcc.Store
+)
+def predict_and_dataframe(n_clicks, all_features):
+    """
+    Triggers on button click, retrieves the features, and converts them to a Pandas DataFrame.
+    """
+    if n_clicks is None or n_clicks == 0:
+        return html.P("Waiting for features and prediction button click...", className="text-muted")
+
+    if not all_features or all(value is None for value in all_features.values()):
+        return html.P("Please enter values for all fields before predicting.", className="text-warning")
+
+    # 1. Convert the dictionary of features into a single-row Pandas DataFrame
+    # Note: Wrap the dictionary in a list [] for the DataFrame constructor to interpret it as a single row.
+    df_features = pd.DataFrame([all_features])
+
+    # 2. Display the DataFrame (for demonstration)
+    # In a real application, you would pass `df_features` to your ML model's predict method: 
+    # e.g., `prediction = model.predict(df_features)`
+    
+    output_children = [
+        html.H4(" Data Prepared for Model (Pandas DataFrame)"),
+        html.P("This is the DataFrame created from the stored user inputs:", className="text-success"),
+        # Use dash_table.DataTable in a real app for a better table, but for simplicity:
+        dbc.Table.from_dataframe(df_features, striped=True, bordered=True, hover=True),
+        html.H5("Next Steps:", className="mt-3"),
+        html.P("The DataFrame is now ready to be passed to a machine learning model for survival prediction.")
+    ]
+    
+    # Returning the list of components for the 'prediction-output' div
+    return output_children
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+
